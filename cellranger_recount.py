@@ -8,11 +8,13 @@ import numpy as np
 import sys
 import re
 from subprocess import check_output
-from multiprocessing.dummy import Pool as ThreadPool 
+from multiprocessing.dummy import Pool as ThreadPool
 import itertools
 
 # create a GTF dict
 def read_gtf(filepath, countfeature = "gene_id"):
+        '''Generates a dictionary which contains the gene_ids as keys.
+        Stored informations are: Chromosome, type, start-position, stop-position and strandness'''
 	gtf_dict = {}
 	with open(filepath, "r") as gtffile:
 		for entry in gtffile:
@@ -27,8 +29,6 @@ def read_gtf(filepath, countfeature = "gene_id"):
 			geneID = geneID.split(";")[0]
 			geneID = geneID.split(" ")[1]
 			geneID = re.sub("\"", "", geneID)
-
-			#print(geneID + " " + chrom + " " + kind + " " + start + " " + stop + " " + strand)
 
 			gtf_dict[geneID] = chrom + "," + kind + "," + start + "," + stop + "," + strand
 	return(gtf_dict)
@@ -113,11 +113,3 @@ if __name__ == "__main__":
 				if len(countdict.keys()) > 0:
 					for cell in list(countdict.keys()):
 						outfile.write(geneID + "\t" + cell + "\t" + str(countdict[cell]) + "\n")
-		# Calling the pool
-		#pool_out = pool.starmap(call_samtools, zip(itertools.repeat(bam_file_path), itertools.repeat(gtf_dict), genes, itertools.repeat(strandness)))
-
-	# umi_counts = {}
-	# for out in pool_out:
-	# 	umi_counts[out[0]] = out[1]
-
-	# print(umi_counts)
