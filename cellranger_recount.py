@@ -108,11 +108,4 @@ if __name__ == "__main__":
 				if len(countdict.keys()) > 0:
 					for cell in list(countdict.keys()):
 						outfile.write(geneID + "\t" + cell + "\t" + str(countdict[cell]) + "\n")
-		# Calling the pool
-		#pool_out = pool.starmap(call_samtools, zip(itertools.repeat(bam_file_path), itertools.repeat(gtf_dict), genes, itertools.repeat(strandness)))
 
-	# umi_counts = {}
-	# for out in pool_out:
-	# 	umi_counts[out[0]] = out[1]
-
-	# print(umi_counts)
