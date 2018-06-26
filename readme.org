@@ -1,0 +1,9 @@
+* Development
+* How to use
+* Todo
+** TODO handle multiple occuring IDs
+* Rationale
+- recount cellranger output bam files using different gtf files
+- in cellranger this feature is missing and the alignment needs to be redone when recount is wanted
+- should only need this folder, the bam file and a gtf file
+  - obviously this gtf file needs to be compatible to the aligned genome (version)
