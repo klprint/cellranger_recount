@@ -1,3 +1,8 @@
+###
+# Created: 26.06.2018
+# By: Kevin Leiss
+###
+
 import pandas as pd
 import numpy as np
 import sys
