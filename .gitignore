@@ -1,0 +1,8 @@
+*.bam
+*.bam.bai
+data/
+env_recount/
+samtools-1.8/
+cellreanger_recount.sublime-project
+cellreanger_recount.sublime-workspace
+counts.txt
