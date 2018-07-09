@@ -58,14 +58,22 @@ def call_samtools(bamfilepath, gtf_dict, geneid, strandness = "sense", alignment
 
 	# Processing the retrieved reads
 	cell_dict = {}  # used for storing the UMI count per cell-barcode
+	cell_reads_dict = {}  # used to store the readnumber per cell-barcode
 	for read in reads:
 		slots = read.split("\t")
 		# Retrieving the barcode sequence
 
 		barcode = [x for x in slots if x.startswith("CB")] # Test whether barcode slot exists
-		if len(barcode) > 0:
+		if len(barcode) == 1:
 			barcode = barcode[0]
 			barcode = re.sub("CB\:Z\:", "", barcode)
+
+			# Incrementing the readnumbers per barcode
+			# Testing whether the barcode is already known:
+			if barcode in cell_reads_dict.keys():
+				cell_reads_dict[barcode] += 1
+			else:
+				cell_reads_dict[barcode] = 1
 
 			# Retrieving the UMI sequence
 			umi = [x for x in slots if x.startswith("UB")] # Test whether UMI slot exists
@@ -91,7 +99,7 @@ def call_samtools(bamfilepath, gtf_dict, geneid, strandness = "sense", alignment
 
 	#print([geneid, testlen, len(cell_dict.keys()), umi_count])
 
-	return([geneid, cell_dict])
+	return([geneid, cell_dict, cell_reads_dict])
 
 
 if __name__ == "__main__":
@@ -109,7 +117,7 @@ if __name__ == "__main__":
 	# Spawning a pool for multithreading
 	with open(out_file_path, "w+") as outfile:
 		with ThreadPool(4) as pool:
-			for geneID, countdict in pool.starmap(call_samtools, zip(itertools.repeat(bam_file_path), itertools.repeat(gtf_dict), genes, itertools.repeat(strandness))):
+			for geneID, countdict, readsdict in pool.starmap(call_samtools, zip(itertools.repeat(bam_file_path), itertools.repeat(gtf_dict), genes, itertools.repeat(strandness))):
 				if len(countdict.keys()) > 0:
 					for cell in list(countdict.keys()):
-						outfile.write(geneID + "\t" + cell + "\t" + str(countdict[cell]) + "\n")
+						outfile.write(geneID + "\t" + cell + "\t" + str(countdict[cell]) + "\t" + str(readsdict[cell]) + "\n")
