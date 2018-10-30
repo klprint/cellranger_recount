@@ -12,26 +12,67 @@ from multiprocessing.dummy import Pool as ThreadPool
 import itertools
 
 # create a GTF dict
-def read_gtf(filepath, countfeature = "gene_id"):
+def read_gtf(filepath, subset_kind = "transcript"):
     '''Generates a dictionary which contains the gene_ids as keys.
     Stored informations are: Chromosome, type, start-position, stop-position and strandness'''
     gtf_dict = {}
     with open(filepath, "r") as gtffile:
+        id = 1
         for entry in gtffile:
-            entry = entry.split("\t")
+            if(not entry.startswith("#")):
+                print(entry)
+                entry = entry.split("\t")
 
-            chrom = entry[0]
-            kind = entry[2]
-            start = entry[3]
-            stop = entry[4]
-            strand = entry[6]
-            geneID = entry[8]
-            geneID = geneID.split(";")[0]
-            geneID = geneID.split(" ")[1]
-            geneID = re.sub("\"", "", geneID)
+                chrom = entry[0]
+                kind = entry[2]
+                start = entry[3]
+                stop = entry[4]
+                strand = entry[6]
+                geneID = entry[8]
+                geneID = geneID.split(";")[0]
+                geneID = geneID.split(" ")[1]
+                geneID = re.sub("\"", "", geneID)
 
-            gtf_dict[geneID] = chrom + "," + kind + "," + start + "," + stop + "," + strand
+                if(kind == subset_kind):
+                    gtf_dict["ID" + str(id)] = chrom + "," + kind + "," + start + "," + stop + "," + strand + "," + geneID
+                    id += 1
     return(gtf_dict)
+
+
+def dcall_samtools(bamfilepath, chromosome, start, stop, strand, strandness = "sense", alignment_qual = "10"):
+    if strandness == "sense":
+        if strand == "+":
+            samtools_out = check_output(["samtools", "view", "-q", alignment_qual, "-F 16", bamfilepath, chromosome + ":" + start + "-" + stop]).decode("utf-8")
+        else:
+            samtools_out = check_output(["samtools", "view", "-q", alignment_qual, "-f 16", bamfilepath, chromosome + ":" + start + "-" + stop]).decode("utf-8")
+    elif strandness == "antisense":
+        if strand == "+":
+            samtools_out = check_output(["samtools", "view", "-q", alignment_qual, "-f 16", bamfilepath, chromosome + ":" + start + "-" + stop]).decode("utf-8")
+        else:
+            samtools_out = check_output(["samtools", "view", "-q", alignment_qual, "-F 16", bamfilepath, chromosome + ":" + start + "-" + stop]).decode("utf-8")
+
+    # Getting the reads within this region
+    reads = samtools_out.split("\n") # the -1 removes the last empty entry due to the split at "\n"
+    del reads[-1]
+
+    return(reads)
+
+def parse_read(read):
+    slots = read.split("\t")
+
+    bc = [x for x in slots if x.startswith("CB")]
+
+    if(len(bc) == 1):
+        bc = re.sub("CB\:Z\:", "", bc[0])
+
+        umi = [x for x in slots if x.startswith("UB")]
+        print(umi)
+
+        umi = re.sub("UB\:Z\:", "", umi[0])
+
+    if(len(bc) > 1 and len(umi) > 1):
+        return (bc, umi, slots[1])
+
 
 def call_samtools(bamfilepath, gtf_dict, geneid, strandness = "sense", alignment_qual = "10"):
     '''call samtools
