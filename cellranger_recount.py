@@ -10,166 +10,132 @@ import re
 from subprocess import check_output
 from multiprocessing.dummy import Pool as ThreadPool
 import itertools
+import HTSeq
 
 # create a GTF dict
 def read_gtf(filepath, subset_kind = "transcript"):
     '''Generates a dictionary which contains the gene_ids as keys.
     Stored informations are: Chromosome, type, start-position, stop-position and strandness'''
-    gtf_dict = {}
-    with open(filepath, "r") as gtffile:
-        id = 1
-        for entry in gtffile:
-            if(not entry.startswith("#")):
-                print(entry)
-                entry = entry.split("\t")
+    gtf_file = HTSeq.GFF_Reader(filepath)
 
-                chrom = entry[0]
-                kind = entry[2]
-                start = entry[3]
-                stop = entry[4]
-                strand = entry[6]
-                geneID = entry[8]
-                geneID = geneID.split(";")[0]
-                geneID = geneID.split(" ")[1]
-                geneID = re.sub("\"", "", geneID)
+    subset = HTSeq.GenomicArrayOfSets("auto", stranded = True)
 
-                if(kind == subset_kind):
-                    gtf_dict["ID" + str(id)] = chrom + "," + kind + "," + start + "," + stop + "," + strand + "," + geneID
-                    id += 1
-    return(gtf_dict)
+    for feature in gtf_file:
+        if feature.type == subset_kind:
+            subset[feature.iv] = feature.name
+
+    return(subset)
 
 
-def dcall_samtools(bamfilepath, chromosome, start, stop, strand, strandness = "sense", alignment_qual = "10"):
-    if strandness == "sense":
-        if strand == "+":
-            samtools_out = check_output(["samtools", "view", "-q", alignment_qual, "-F 16", bamfilepath, chromosome + ":" + start + "-" + stop]).decode("utf-8")
-        else:
-            samtools_out = check_output(["samtools", "view", "-q", alignment_qual, "-f 16", bamfilepath, chromosome + ":" + start + "-" + stop]).decode("utf-8")
-    elif strandness == "antisense":
-        if strand == "+":
-            samtools_out = check_output(["samtools", "view", "-q", alignment_qual, "-f 16", bamfilepath, chromosome + ":" + start + "-" + stop]).decode("utf-8")
-        else:
-            samtools_out = check_output(["samtools", "view", "-q", alignment_qual, "-F 16", bamfilepath, chromosome + ":" + start + "-" + stop]).decode("utf-8")
+def process_alignment(alnmt, featureset):
+    '''Processes HTSeq alignments and uses a parsed featureset (generate by read_gtf)
+    to return the Barcode, UMI and the aligning gene.
+    Returns None if there was no gene annotated'''
+    if alnmt.aligned:
+            if alnmt.aQual == 255:
+                optional_fields = [keys[0] for keys in alnmt.optional_fields]
+                if "MM" not in optional_fields and "CB" in optional_fields and "UB" in optional_fields:
+                    features = list(featureset[alnmt.iv].steps())
+                    features = [feature for feature in features if feature[1] != set()]
 
-    # Getting the reads within this region
-    reads = samtools_out.split("\n") # the -1 removes the last empty entry due to the split at "\n"
-    del reads[-1]
+                    if len(features) > 0:
 
-    return(reads)
-
-def parse_read(read):
-    slots = read.split("\t")
-
-    bc = [x for x in slots if x.startswith("CB")]
-
-    if(len(bc) == 1):
-        bc = re.sub("CB\:Z\:", "", bc[0])
-
-        umi = [x for x in slots if x.startswith("UB")]
-        print(umi)
-
-        umi = re.sub("UB\:Z\:", "", umi[0])
-
-    if(len(bc) > 1 and len(umi) > 1):
-        return (bc, umi, slots[1])
+                        return(alnmt.optional_field("CB"), alnmt.optional_field("UB"), tuple(feature[1] for feature in features))
 
 
-def call_samtools(bamfilepath, gtf_dict, geneid, strandness = "sense", alignment_qual = "10"):
-    '''call samtools
-    the strandness parameter defines whether the gene-sense or antisense reads should be counted
-    '''
-    chrom, kind, start, stop, strand = gtf_dict[geneid].split(",")
 
-    # Invoking samtools to extract the reads within the specified region
-    # A minimal alignment quality of 10 is required
-    if strandness == "sense":
-        if strand == "+":
-            samtools_out = check_output(["samtools", "view", "-q", alignment_qual, "-F 16", bamfilepath, chrom + ":" + start + "-" + stop]).decode("utf-8")
-        else:
-            samtools_out = check_output(["samtools", "view", "-q", alignment_qual, "-f 16", bamfilepath, chrom + ":" + start + "-" + stop]).decode("utf-8")
-    elif strandness == "antisense":
-        if strand == "+":
-            samtools_out = check_output(["samtools", "view", "-q", alignment_qual, "-f 16", bamfilepath, chrom + ":" + start + "-" + stop]).decode("utf-8")
-        else:
-            samtools_out = check_output(["samtools", "view", "-q", alignment_qual, "-F 16", bamfilepath, chrom + ":" + start + "-" + stop]).decode("utf-8")
+def get_aligned_molecules(bamfilepath, featureset, umi = True):
+    '''Returns a array of: 
+      1. list of tuples of Barcode, UMI, aligned gene
+      2. int of alignments which did not pass filters'''
+    bamfile = HTSeq.BAM_Reader(bamfilepath)
 
-    # Getting the reads within this region
-    reads = samtools_out.split("\n") # the -1 removes the last empty entry due to the split at "\n"
-    del reads[-1]
+    molecules_out = []
+    umi_out = set()
+    not_passed = 0
 
-    # Processing the retrieved reads
-    cell_dict = {}  # used for storing the UMI count per cell-barcode
-    cell_reads_dict = {}  # used to store the readnumber per cell-barcode
-    for read in reads:
-        slots = read.split("\t")
-        # Retrieving the barcode sequence
-
-        barcode = [x for x in slots if x.startswith("CB")] # Test whether barcode slot exists
-        if len(barcode) == 1:
-            barcode = barcode[0]
-            barcode = re.sub("CB\:Z\:", "", barcode)
-
-            # Incrementing the readnumbers per barcode
-            # Testing whether the barcode is already known:
-            if barcode in cell_reads_dict.keys():
-                cell_reads_dict[barcode] += 1
+    for alnmt in bamfile:
+        if alnmt.aligned:
+            mol_out = process_alignment(alnmt, featureset)
+            if mol_out == None:
+                not_passed += 1
+                continue
+            if umi:
+                umi_out.add(mol_out)
             else:
-                cell_reads_dict[barcode] = 1
+                molecules_out.append(mol_out)
 
-            # Retrieving the UMI sequence
-            umi = [x for x in slots if x.startswith("UB")] # Test whether UMI slot exists
-            if len(umi) > 0:
-                umi = umi[0]
-                umi = re.sub("UB\:Z\:", "", umi)
+    if umi:
+        return [u for u in umi_out], not_passed
+    else:
+        return molecules_out, not_passed
 
-                if barcode in cell_dict.keys():
-                    if umi not in cell_dict[barcode]:
-                        cell_dict[barcode].append(umi)
+
+def parse_molecules(aligned_molecules):
+    outdict = dict()
+    for aln in aligned_molecules:
+        genes = aln[2]
+
+        if aln[0] not in outdict.keys():
+            outdict[aln[0]] = dict()
+            outdict[aln[0]] = {key: 1 for key in genes}
+        else:
+            for gene in genes:
+                if gene not in outdict[aln[0]].keys():
+                    outdict[aln[0]][gene] = 1
                 else:
-                    cell_dict[barcode] = [umi]
+                    outdict[aln[0]][gene] += 1
+    return outdict
 
 
-    cellIDs = cell_dict.keys()
-    umi_count = 0
-    for cellID in cellIDs:
-        cell_dict[cellID] = len(cell_dict[cellID])
-        #print(geneid + " " + cellID + " " + str(cell_dict[cellID]))
-        umi_count += cell_dict[cellID]
-    # Getting the number of reads in this region
-    testlen = len(reads)
+def make_sparse_mtx(parsed_molecules, outfolder):
+    barcodes = [key for key in parsed_molecules.keys()]
+    genes = set()
+    countsum = 0
 
-    #print([geneid, testlen, len(cell_dict.keys()), umi_count])
+    # for key, entry in parsed_molecules.items():
+    #     reg_genes = [gene for gene in entry.keys()]
+    #     for gene in reg_genes:
+    #         genes.add(gene)
 
-    return([geneid, cell_dict, cell_reads_dict])
+    print("Parsing coodrinates")
+    for key, entry in parsed_molecules.items():
+        for gene, count in entry.items():
+            genes.add(gene)
+            countsum = countsum + count
+
+    genes = list(genes)
+
+    print("Writing matrix to " + outfolder)
+    with open(outfolder + "/matrix.mtx", "a") as out_mtx:
+        out_mtx.write("%%MatrixMarket matrix coordinate integer general\n")
+        out_mtx.write("%\n")
+        out_mtx.write(str(len(genes)) + " " + str(len(barcodes)) + " " + str(countsum) + "\n")
+
+
+        for bc, entry in parsed_molecules.items():
+            bc_coord = barcodes.index(bc) +1  # Make it 1-based counting
+
+            for gene, count in parsed_molecules[bc].items():
+                gene_coord = genes.index(gene) +1  # Make it 1-based
+                out_mtx.write(str(gene_coord) + " " + str(bc_coord) + " " + str(count) + "\n")
+
+    print("Writing genes.tsv")
+    with open(outfolder + "/genes.tsv", "a") as out_genes:
+        for gene in genes:
+            out_genes.write(gene + "\t" + gene + "\n")
+
+    print("Writing barcodes.tsv")
+    with open(outfolder + "/barcodes.tsv", "a") as out_barcodes:
+        for bc in barcodes:
+            out_barcodes.write(bc + "\n")
+
+
+
+
+
+
 
 
 if __name__ == "__main__":
-    gtf_file_path = sys.argv[1]
-
-    # If the first argument is "help" print the following message:
-    if gtf_file_path == "help":
-        raise FileNotFoundError('''You invoked the help message of cellranger_recount
-            Arguments need to be parsed in the following manner:
-
-            1. gtf file path
-            2. bam file path
-            3. strandness [+/-]
-            4. output file path''')
-
-    bam_file_path = sys.argv[2]
-    strandness = sys.argv[3]
-    out_file_path = sys.argv[4]
-
-    gtf_dict = read_gtf(gtf_file_path)
-    print("A GTF file with %i features was read" % len(gtf_dict.keys()))
-
-    # Generating a list of geneIDs
-    genes = list(gtf_dict.keys())
-
-    # Spawning a pool for multithreading
-    with open(out_file_path, "w+") as outfile:
-        with ThreadPool(4) as pool:
-            for geneID, countdict, readsdict in pool.starmap(call_samtools, zip(itertools.repeat(bam_file_path), itertools.repeat(gtf_dict), genes, itertools.repeat(strandness))):
-                if len(countdict.keys()) > 0:
-                    for cell in list(countdict.keys()):
-                        outfile.write(geneID + "\t" + cell + "\t" + str(countdict[cell]) + "\t" + str(readsdict[cell]) + "\n")
+    pass
