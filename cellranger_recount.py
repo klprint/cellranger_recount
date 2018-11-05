@@ -183,43 +183,35 @@ if __name__ == "__main__":
 
 
     import datetime as dt
-    import os
     import random
+    import os
 
-    logfile = "runLog_" + str(random.randint(0,1000)) + ".txt"
+    logfile = "log_" + str(random.randint(0,1000)) + ".txt"
+    sys.stdout = open(logfile, 'w',  buffering = 1)
 
-    logf = open(logfile, "a")
-
+    print("StdOut will be redirected into file: " + logfile)
     if not os.path.isdir(args.outdir):
         os.makedirs(args.outdir)
     else:
         if os.path.exists(args.outdir + "/matrix.mtx") or os.path.exists(args.outdir + "/genes.tsv") or os.path.exists(args.outdir + "/barcodes.tsv"):
-            logf.write("The output folder is already populated, please clean up or use another one.\n")
             raise ValueError("The output folder is already populated, please clean up or use another one.")
 
     print("Started at: ", str(dt.datetime.now()))
-    logf.write("Started at: " + str(dt.datetime.now()) + "\n")
 
 
     print(str(dt.datetime.now()) + " Reading the GTF file.")
-    logf.write(str(dt.datetime.now()) + " Reading the GTF file." + "\n")
     gtf = read_gtf(args.gtf, subset_kind = args.feature)
 
     print("Getting the alignment informations")
-    logf.write("Getting the alignment informations" + "\n")
     aligned_mols, not_passed = get_aligned_molecules(args.bam, gtf, reads = args.reads)
 
     print(str(not_passed) + " alignments were not associated with a feature.")
-    logf.write(str(not_passed) + " alignments were not associated with a feature." + "\n")
 
     print(str(dt.datetime.now()) + " Counting molecules")
-    logf.write(str(dt.datetime.now()) + " Counting molecules" + "\n")
     counted = parse_molecules(aligned_mols)
 
     print(str(dt.datetime.now()) + " Writing output")
-    logf.write(str(dt.datetime.now()) + " Writing output" + "\n")
     make_sparse_mtx(counted, args.outdir)
 
     print(str(dt.datetime.now()) + " Finished")
-    logf.write(str(dt.datetime.now()) + " Finished" + "\n")
 

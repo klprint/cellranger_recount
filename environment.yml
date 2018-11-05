@@ -2,7 +2,7 @@ name: cellranger_recount
 channels:
   - defaults
 dependencies:
-  - python=3.6
+  - python=3
   - pip:
     - htseq==0.11.0
     - matplotlib==3.0.1
