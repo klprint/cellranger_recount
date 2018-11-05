@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 ###
 # Created: 26.06.2018
 # By: Kevin Leiss
@@ -7,8 +8,6 @@ import pandas as pd
 import numpy as np
 import sys
 import re
-from subprocess import check_output
-from multiprocessing.dummy import Pool as ThreadPool
 import itertools
 import HTSeq
 
@@ -44,7 +43,7 @@ def process_alignment(alnmt, featureset):
 
 
 
-def get_aligned_molecules(bamfilepath, featureset, umi = True):
+def get_aligned_molecules(bamfilepath, featureset, reads = False):
     '''Returns a array of: 
       1. list of tuples of Barcode, UMI, aligned gene
       2. int of alignments which did not pass filters'''
@@ -54,21 +53,26 @@ def get_aligned_molecules(bamfilepath, featureset, umi = True):
     umi_out = set()
     not_passed = 0
 
+    n_processed = 1
     for alnmt in bamfile:
         if alnmt.aligned:
             mol_out = process_alignment(alnmt, featureset)
             if mol_out == None:
                 not_passed += 1
                 continue
-            if umi:
-                umi_out.add(mol_out)
-            else:
+            if reads:
                 molecules_out.append(mol_out)
+            else:
+                umi_out.add(mol_out)
+                
+        if n_processed % 500000 == 0:
+            print(str(n_processed) + " alignments processed")
+        n_processed += 1
 
-    if umi:
-        return [u for u in umi_out], not_passed
-    else:
+    if reads:
         return molecules_out, not_passed
+    else:
+        return [u for u in umi_out], not_passed
 
 
 def parse_molecules(aligned_molecules):
@@ -138,4 +142,84 @@ def make_sparse_mtx(parsed_molecules, outfolder):
 
 
 if __name__ == "__main__":
-    pass
+
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Recounting cellranger BAM files')
+    parser.add_argument("bam", 
+        metavar="BAM", 
+        type=str, 
+        default = None,
+        help='Path to the to be analyzed BAM file')
+
+    parser.add_argument("gtf",
+        metavar="GTF",
+        type=str,
+        default=None,
+        help="Path to the genome annotation (GTF/GFF-format)")
+
+    parser.add_argument("outdir", 
+        metavar="OUTDIR", 
+        type = str, 
+        default = None,
+        help = "Directory where the output matrices should be stored")
+
+
+    parser.add_argument("-f", "--feature",
+        metavar="FEATURE",
+        type=str,
+        default="transcript",
+        help="What kind of feature should be counted? default: transcript")
+
+
+    parser.add_argument("--reads", 
+        action = "store_true",
+        help = "If set, the returned matrix will be readcounts instead of UMI counts")
+
+
+    args = parser.parse_args()
+
+    #print(args)
+
+
+    import datetime as dt
+    import os
+    import random
+
+    logfile = "runLog_" + str(random.randint(0,1000)) + ".txt"
+
+    logf = open(logfile, "a")
+
+    if not os.path.isdir(args.outdir):
+        os.makedirs(args.outdir)
+    else:
+        if os.path.exists(args.outdir + "/matrix.mtx") or os.path.exists(args.outdir + "/genes.tsv") or os.path.exists(args.outdir + "/barcodes.tsv"):
+            logf.write("The output folder is already populated, please clean up or use another one.\n")
+            raise ValueError("The output folder is already populated, please clean up or use another one.")
+
+    print("Started at: ", str(dt.datetime.now()))
+    logf.write("Started at: " + str(dt.datetime.now()) + "\n")
+
+
+    print(str(dt.datetime.now()) + " Reading the GTF file.")
+    logf.write(str(dt.datetime.now()) + " Reading the GTF file." + "\n")
+    gtf = read_gtf(args.gtf, subset_kind = args.feature)
+
+    print("Getting the alignment informations")
+    logf.write("Getting the alignment informations" + "\n")
+    aligned_mols, not_passed = get_aligned_molecules(args.bam, gtf, reads = args.reads)
+
+    print(str(not_passed) + " alignments were not associated with a feature.")
+    logf.write(str(not_passed) + " alignments were not associated with a feature." + "\n")
+
+    print(str(dt.datetime.now()) + " Counting molecules")
+    logf.write(str(dt.datetime.now()) + " Counting molecules" + "\n")
+    counted = parse_molecules(aligned_mols)
+
+    print(str(dt.datetime.now()) + " Writing output")
+    logf.write(str(dt.datetime.now()) + " Writing output" + "\n")
+    make_sparse_mtx(counted, args.outdir)
+
+    print(str(dt.datetime.now()) + " Finished")
+    logf.write(str(dt.datetime.now()) + " Finished" + "\n")
+

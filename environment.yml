@@ -1,0 +1,12 @@
+name: cellranger_recount
+channels:
+  - defaults
+dependencies:
+  - python=3.6
+  - pip:
+    - htseq==0.11.0
+    - matplotlib==3.0.1
+    - numpy==1.15.3
+    - pandas==0.23.4
+    - scikit-learn==0.20.0
+    - scipy==1.1.0
