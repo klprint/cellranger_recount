@@ -77,9 +77,21 @@ def read_gtf(filepath, subset_kind = "transcript"):
 
                 
 
-def call_samtools(bamfilepath, chrom, start, stop, strand, alignment_qual="255", strandness="sense",):
-    # if strandness != "sense" or strandness != "antisense":
-    #     raise ValueError("strandness needs to be either sense or antisense.")
+def call_samtools(bamfilepath, chrom, start, stop, strand, alignment_qual="255", strandness="sense"):
+    '''
+    Calls samtools for a specific region
+
+    It is important to have samtools in the $PATH variable available!
+    bafilepath = path to the indexed bamfile
+    chrom = chromosome identifier
+    start = start nucleotide
+    stop = stop nucleotide
+    strand = + or -
+    alignment_qual = adjusted for STAR, default = "255" -- needs to be a string
+    strandness = returns either reads sense or antisense to the feature
+
+    Returns a list of aligned reads (str)
+    '''
 
     if strandness == "antisense":
         if strand == "+":
@@ -98,6 +110,10 @@ def call_samtools(bamfilepath, chrom, start, stop, strand, alignment_qual="255",
 
 
 def get_read_metadata(readstring):
+    '''
+    Uses a string of a SAM alignment and returns a dictionary of optional flags (last columns of a SAM alignment),
+    using the flags as keys and all values as strings.
+    '''
     read_info = readstring.split("\t")
     meta_block = read_info[11:len(read_info)]
     meta_block = {re.split(":.:",m)[0]: re.split(":.:",m)[1] for m in meta_block}
@@ -105,6 +121,12 @@ def get_read_metadata(readstring):
     return meta_block
 
 def filter_reads(readlist, cr_altered = False, unique = True):
+    '''
+    Filters a list of SAM alignments
+
+    Removes all reads which aligned mutliple times and where cellranger gave a "MM" flag.
+    Also removes alignments, where no corrected barcode or UMI could be found.
+    '''
     out_readslist = list()
 
     for read in readlist:
@@ -116,6 +138,9 @@ def filter_reads(readlist, cr_altered = False, unique = True):
     return(out_readslist)
 
 def assign_read_identitiy(read):
+    '''
+    Parse a SAM read string and return the "CB" and "UB" flag values as tuple.
+    '''
     meta_block = get_read_metadata(read)
     return (meta_block["CB"], meta_block["UB"])
 
@@ -170,131 +195,68 @@ def check_reads_per_feature(bamfilepath, gtf_dict, alignment_qual="255", strandn
     if(umi):
         out = list(set(out))
     return out
-    
 
-def generate_sparse_matrix(gene_bc_umi_tuplelist, outdir):
-    genes = set()
-    barcodes = set()
 
-    n_entries = len(gene_bc_umi_tuplelist)
+def count_per_bc(gene_bc_umi_tuplelist):
+    outdict = dict()
 
-    i=1
+    i = 1
     for entry in gene_bc_umi_tuplelist:
-        genes.add(entry[0])
-        barcodes.add(entry[1])
-        updt(n_entries, i)
+        gene, barcode, umi = entry
+
+        if barcode not in outdict.keys():
+            outdict[barcode] = dict()
+
+        if gene not in outdict[barcode].keys():
+            outdict[barcode][gene] = 1
+        else:
+            outdict[barcode][gene] += 1
+        updt(len(gene_bc_umi_tuplelist), i)
         i+=1
 
+    return(outdict)
+    
 
-# def process_alignment(alnmt, featureset):
-#     '''Processes HTSeq alignments and uses a parsed featureset (generate by read_gtf)
-#     to return the Barcode, UMI and the aligning gene.
-#     Returns None if there was no gene annotated'''
-#     if alnmt.aligned:
-#             if alnmt.aQual == 255:
-#                 optional_fields = [keys[0] for keys in alnmt.optional_fields]
-#                 if "MM" not in optional_fields and "CB" in optional_fields and "UB" in optional_fields:
-#                     features = list(featureset[alnmt.iv].steps())
-#                     features = [feature for feature in features if feature[1] != set()]
+def write_sparse_matrix(quant_dict, outdir):
+    outdir = re.sub("/", "", outdir)
+    barcodes = list(quant_dict.keys())
+    genes = set()
 
-#                     if len(features) > 0:
+    for key, value in quant_dict.items():
+        entry_genes = value.keys()
+        for gene in entry_genes:
+            genes.add(gene)
 
-#                         return(alnmt.optional_field("CB"), alnmt.optional_field("UB"), tuple(feature[1] for feature in features))
+    genes = list(genes)
 
+    lines = list()
+    sum_umi = 0
 
+    for bc, gene_quant in quant_dict.items():
+        bc_id = barcodes.index(bc) +1
 
-# def get_aligned_molecules(bamfilepath, featureset, reads = False):
-#     '''Returns a array of: 
-#       1. list of tuples of Barcode, UMI, aligned gene
-#       2. int of alignments which did not pass filters'''
-#     bamfile = HTSeq.BAM_Reader(bamfilepath)
+        for gene, value in gene_quant.items():
+            gene_id = genes.index(gene) +1
+            sum_umi += value
+            value = str(value)
 
-#     molecules_out = []
-#     umi_out = set()
-#     not_passed = 0
-
-#     n_processed = 1
-#     for alnmt in bamfile:
-#         if alnmt.aligned:
-#             mol_out = process_alignment(alnmt, featureset)
-#             if mol_out == None:
-#                 not_passed += 1
-#                 continue
-#             if reads:
-#                 molecules_out.append(mol_out)
-#             else:
-#                 umi_out.add(mol_out)
-                
-#         if n_processed % 500000 == 0:
-#             print(str(n_processed) + " alignments processed")
-#         n_processed += 1
-
-#     if reads:
-#         return molecules_out, not_passed
-#     else:
-#         return [u for u in umi_out], not_passed
+            lines.append(str(gene_id) + " " + str(bc_id) + " " + str(value))
 
 
-# def parse_molecules(aligned_molecules):
-#     outdict = dict()
-#     for aln in aligned_molecules:
-#         genes = aln[2]
 
-#         if aln[0] not in outdict.keys():
-#             outdict[aln[0]] = dict()
-#             outdict[aln[0]] = {key: 1 for key in genes}
-#         else:
-#             for gene in genes:
-#                 if gene not in outdict[aln[0]].keys():
-#                     outdict[aln[0]][gene] = 1
-#                 else:
-#                     outdict[aln[0]][gene] += 1
-#     return outdict
+    with open(outdir + "/matrix.mtx", "w") as mtx:
+        mtx.write("%%MatrixMarket matrix coordinate integer general\n%\n")
+        mtx.write(str(len(genes)) + " " + str(len(barcodes)) + " " +  str(sum_umi) + "\n")
+        for line in lines:
+            mtx.write(line + "\n")
 
+    with open(outdir + "/genes.tsv", "w") as gns:
+        for gene in genes:
+            gns.write(gene + "\t" + gene + "\n")
 
-# def make_sparse_mtx(parsed_molecules, outfolder):
-#     barcodes = [key for key in parsed_molecules.keys()]
-#     genes = set()
-#     countsum = 0
-
-#     # for key, entry in parsed_molecules.items():
-#     #     reg_genes = [gene for gene in entry.keys()]
-#     #     for gene in reg_genes:
-#     #         genes.add(gene)
-
-#     print("Parsing coodrinates")
-#     for key, entry in parsed_molecules.items():
-#         for gene, count in entry.items():
-#             genes.add(gene)
-#             countsum = countsum + count
-
-#     genes = list(genes)
-
-#     print("Writing matrix to " + outfolder)
-#     with open(outfolder + "/matrix.mtx", "a") as out_mtx:
-#         out_mtx.write("%%MatrixMarket matrix coordinate integer general\n")
-#         out_mtx.write("%\n")
-#         out_mtx.write(str(len(genes)) + " " + str(len(barcodes)) + " " + str(countsum) + "\n")
-
-
-#         for bc, entry in parsed_molecules.items():
-#             bc_coord = barcodes.index(bc) +1  # Make it 1-based counting
-
-#             for gene, count in parsed_molecules[bc].items():
-#                 gene_coord = genes.index(gene) +1  # Make it 1-based
-#                 out_mtx.write(str(gene_coord) + " " + str(bc_coord) + " " + str(count) + "\n")
-
-#     print("Writing genes.tsv")
-#     with open(outfolder + "/genes.tsv", "a") as out_genes:
-#         for gene in genes:
-#             out_genes.write(gene + "\t" + gene + "\n")
-
-#     print("Writing barcodes.tsv")
-#     with open(outfolder + "/barcodes.tsv", "a") as out_barcodes:
-#         for bc in barcodes:
-#             out_barcodes.write(bc + "\n")
-
-
+    with open(outdir + "/barcodes.tsv", "w") as bcds:
+        for barcode in barcodes:
+            bcds.write(barcode + "\n")
 
 
 
@@ -337,6 +299,13 @@ if __name__ == "__main__":
         help = "If set, the returned matrix will be readcounts instead of UMI counts")
 
 
+    parser.add_argument("--ncores",
+        metavar = "INT",
+        type=int,
+        default=4,
+        help="Number of cores to alocate")
+
+
     args = parser.parse_args()
 
     #print(args)
@@ -346,7 +315,7 @@ if __name__ == "__main__":
     import random
     import os
 
-    logfile = "log_" + str(random.randint(0,1000)) + ".txt"
+    logfile = "log_" + re.sub(" |:|\\.", "_", str(dt.datetime.now()))[0:19] + ".txt"
     sys.stdout = open(logfile, 'w',  buffering = 1)
 
     print("StdOut will be redirected into file: " + logfile)
@@ -356,22 +325,39 @@ if __name__ == "__main__":
         if os.path.exists(args.outdir + "/matrix.mtx") or os.path.exists(args.outdir + "/genes.tsv") or os.path.exists(args.outdir + "/barcodes.tsv"):
             raise ValueError("The output folder is already populated, please clean up or use another one.")
 
-    print("Started at: ", str(dt.datetime.now()))
+    print(str(dt.datetime.now()) + " starting")
 
 
     print(str(dt.datetime.now()) + " Reading the GTF file.")
     gtf = read_gtf(args.gtf, subset_kind = args.feature)
 
-    print("Getting the alignment informations")
-    aligned_mols, not_passed = get_aligned_molecules(args.bam, gtf, reads = args.reads)
+    print()
+    print(10 * "-")
+    print()
 
-    print(str(not_passed) + " alignments were not associated with a feature.")
+    print(str(dt.datetime.now()) + " Reading alignments")
+    molecule_info = check_reads_per_feature(args.bam, gtf, ncores = args.ncores, umi = not args.reads)
+    print(str(dt.datetime.now()) + " Done")
 
-    print(str(dt.datetime.now()) + " Counting molecules")
-    counted = parse_molecules(aligned_mols)
+    print()
+    print(10 * "-")
+    print()
 
-    print(str(dt.datetime.now()) + " Writing output")
-    make_sparse_mtx(counted, args.outdir)
+    print(str(dt.datetime.now()) + " Parsing the data")
+    counts_dict = count_per_bc(molecule_info)
+    print(str(dt.datetime.now()) + " Done")
+
+    print()
+    print(10 * "-")
+    print()
+
+    print(str(dt.datetime.now()) + " Writing the output")
+    write_sparse_matrix(counts_dict, args.outdir)
+    print(str(dt.datetime.now()) + " Done")
+
+    print()
+    print(10 * "-")
+    print()
 
     print(str(dt.datetime.now()) + " Finished")
 
