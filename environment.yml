@@ -4,7 +4,5 @@ channels:
 dependencies:
   - python=3
   - pip:
-    - pandas==0.23.4
-    - scipy==1.1.0
     - parmap
     - tqdm
