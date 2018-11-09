@@ -5,7 +5,7 @@
 ###
 
 import pandas as pd
-import numpy as np
+#import numpy as np
 import sys
 import time
 import re
@@ -13,6 +13,8 @@ import itertools
 from subprocess import check_output
 from multiprocessing import Pool as ThreadPool
 import gzip
+import parmap
+import tqdm
 
 # create a GTF dict
 def read_gtf(filepath, subset_kind = "transcript"):
@@ -145,7 +147,7 @@ def assign_read_identitiy(read):
     return (meta_block["CB"], meta_block["UB"])
 
 
-def call_samtools_by_gtfdict(bamfilepath, gene, gtfdict, alignment_qual="255", strandness="sense", cr_altered = False, unique = True):
+def call_samtools_by_gtfdict(gene, bamfilepath, gtfdict, alignment_qual="255", strandness="sense", cr_altered = False, unique = True):
     entries = gtfdict[gene]
     all_reads = set()
 
@@ -186,14 +188,39 @@ def updt(total, progress):
 def check_reads_per_feature(bamfilepath, gtf_dict, alignment_qual="255", strandness="sense", ncores = 4, umi = True):
     genes = list(gtf_dict.keys())
 
-    out = list()
+    # out = list()
 
-    with ThreadPool(ncores) as pool:
-        for o in pool.starmap(call_samtools_by_gtfdict, zip(itertools.repeat(bamfilepath), genes, itertools.repeat(gtf_dict), itertools.repeat(alignment_qual), itertools.repeat(strandness))):
-            out = out + o
+    # with ThreadPool(ncores) as pool:
+    #     for out in pool.starmap(call_samtools_by_gtfdict, zip(itertools.repeat(bamfilepath), genes, itertools.repeat(gtf_dict), itertools.repeat(alignment_qual), itertools.repeat(strandness))):
+    #         out = out + o
+    # i = 1
+
+    # with ThreadPool(ncores) as pool:
+    #     out = pool.starmap(call_samtools_by_gtfdict, zip(itertools.repeat(bamfilepath), genes, itertools.repeat(gtf_dict), itertools.repeat(alignment_qual), itertools.repeat(strandness)))
+
+
+    # with open("testout.txt", "w") as outfile:
+    #     for gene in genes:
+    #         out = call_samtools_by_gtfdict(bamfilepath, gene, gtf_dict)
+
+
+
+    #         for molecule in out:
+    #             outfile.write(molecule[0] + "," + molecule[1] + "," + molecule[2] + "\n")
+
+
+    #         updt(len(genes), i)
+    #         i += 1
+
+    out = parmap.map(call_samtools_by_gtfdict, genes, bamfilepath=bamfilepath, gtfdict=gtf_dict, strandness=strandness, pm_pbar=True,  pm_processes=ncores)
+
+    print("Unlisting the outputlists")
+    out = list(itertools.chain.from_iterable(out))
 
     if(umi):
+        print("Generating UMI")
         out = list(set(out))
+    
     return out
 
 
@@ -335,7 +362,7 @@ if __name__ == "__main__":
     print(10 * "-")
     print()
 
-    print(str(dt.datetime.now()) + " Reading alignments")
+    print(str(dt.datetime.now()) + " Reading alignments for " + str(len(gtf.keys())) + " genes")
     molecule_info = check_reads_per_feature(args.bam, gtf, ncores = args.ncores, umi = not args.reads)
     print(str(dt.datetime.now()) + " Done")
 
