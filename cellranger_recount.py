@@ -101,10 +101,14 @@ def call_samtools(bamfilepath, chrom, start, stop, strand, alignment_qual="255",
         else:
             strand = "+"
 
-    if strand == "+":
-        aligning_reads = check_output(["samtools", "view", "-q", alignment_qual, "-F 16", bamfilepath, chrom + ":" + start + "-" + stop]).decode("utf-8").split("\n")
+    if strandness == "sense" or strandness == "antisense":
+        if strand == "+":
+            aligning_reads = check_output(["samtools", "view", "-q", alignment_qual, "-F 16", bamfilepath, chrom + ":" + start + "-" + stop]).decode("utf-8").split("\n")
+        else:
+            aligning_reads = check_output(["samtools", "view", "-q", alignment_qual, "-f 16", bamfilepath, chrom + ":" + start + "-" + stop]).decode("utf-8").split("\n")
     else:
-        aligning_reads = check_output(["samtools", "view", "-q", alignment_qual, "-f 16", bamfilepath, chrom + ":" + start + "-" + stop]).decode("utf-8").split("\n")
+        aligning_reads = check_output(["samtools", "view", "-q", alignment_qual, bamfilepath, chrom + ":" + start + "-" + stop]).decode("utf-8").split("\n")
+
 
     del aligning_reads[-1]
     return aligning_reads
@@ -320,6 +324,12 @@ if __name__ == "__main__":
         default="transcript",
         help="What kind of feature should be counted? default: transcript")
 
+    parser.add_argument("-s", "--strandness",
+        metavar="SENSE|ANTISENSE|IGNORE",
+        type=str,
+        default="sense",
+        help="Define whether only reads in FEATURE sense / antisense direction should be counted, or strand-unspecific")
+
 
     parser.add_argument("--reads", 
         action = "store_true",
@@ -363,7 +373,7 @@ if __name__ == "__main__":
     print()
 
     print(str(dt.datetime.now()) + " Reading alignments for " + str(len(gtf.keys())) + " genes")
-    molecule_info = check_reads_per_feature(args.bam, gtf, ncores = args.ncores, umi = not args.reads)
+    molecule_info = check_reads_per_feature(args.bam, gtf, ncores = args.ncores, umi = not args.reads, strandness = args.strandness.tolower())
     print(str(dt.datetime.now()) + " Done")
 
     print()
