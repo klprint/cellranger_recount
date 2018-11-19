@@ -249,7 +249,7 @@ def count_per_bc(gene_bc_umi_tuplelist):
     
 
 def write_sparse_matrix(quant_dict, outdir):
-    outdir = re.sub("/", "", outdir)
+    #outdir = re.sub("/", "", outdir)
     barcodes = list(quant_dict.keys())
     genes = set()
 
@@ -373,7 +373,7 @@ if __name__ == "__main__":
     print()
 
     print(str(dt.datetime.now()) + " Reading alignments for " + str(len(gtf.keys())) + " genes")
-    molecule_info = check_reads_per_feature(args.bam, gtf, ncores = args.ncores, umi = not args.reads, strandness = args.strandness.tolower())
+    molecule_info = check_reads_per_feature(args.bam, gtf, ncores = args.ncores, umi = not args.reads, strandness = args.strandness.lower())
     print(str(dt.datetime.now()) + " Done")
 
     print()
