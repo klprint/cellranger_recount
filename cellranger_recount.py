@@ -216,15 +216,30 @@ def check_reads_per_feature(bamfilepath, gtf_dict, alignment_qual="255", strandn
     #         updt(len(genes), i)
     #         i += 1
 
-    out = parmap.map(call_samtools_by_gtfdict, genes, bamfilepath=bamfilepath, gtfdict=gtf_dict, strandness=strandness, pm_pbar=True,  pm_processes=ncores)
+    # PARMAP #######################################
+    #out = parmap.map(call_samtools_by_gtfdict, genes, bamfilepath=bamfilepath, gtfdict=gtf_dict, strandness=strandness, pm_pbar=True,  pm_processes=ncores)
 
-    print("Unlisting the outputlists")
-    out = list(itertools.chain.from_iterable(out))
+    # print("Unlisting the outputlists")
+    # out = list(itertools.chain.from_iterable(out))
+
+    
+    # PARMAP #######################################
+    
+    out = list()
+
+    i = 1
+    nGenes = len(gtf_dict.keys())
+    for gene in gtf_dict.keys():
+        o = call_samtools_by_gtfdict(gene, bamfilepath, gtf_dict, strandness=strandness)
+        out += o
+        updt(nGenes, i)
+        i += 1
 
     if(umi):
         print("Generating UMI")
         out = list(set(out))
-    
+
+
     return out
 
 
